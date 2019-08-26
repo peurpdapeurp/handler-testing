@@ -22,6 +22,7 @@ import net.named_data.jndn.security.identity.MemoryPrivateKeyStorage;
 import net.named_data.jndn.security.policy.SelfVerifyPolicyManager;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class NetworkThreadConsumer extends HandlerThread {
@@ -34,6 +35,9 @@ public class NetworkThreadConsumer extends HandlerThread {
     private long startTime_;
     private ConcurrentHashMap<Name, Handler> streamFetcherHandlers_;
     private Handler handler_;
+
+    HashSet<Name> retransmits_;
+    HashSet<Name> recvDatas_;
 
     // Private constants
     private static final int PROCESSING_INTERVAL_MS = 100;
@@ -57,6 +61,8 @@ public class NetworkThreadConsumer extends HandlerThread {
     public NetworkThreadConsumer() {
         super("NetworkThreadConsumer");
         streamFetcherHandlers_ = new ConcurrentHashMap<>();
+        retransmits_ = new HashSet<>();
+        recvDatas_ = new HashSet<>();
     }
 
     private void doSomeWork() {
@@ -78,11 +84,23 @@ public class NetworkThreadConsumer extends HandlerThread {
 
     private void sendInterest(Interest interest) {
         Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "send interest (name " + interest.getName().toString() + ")");
+        if (!retransmits_.contains(interest.getName())) {
+            retransmits_.add(interest.getName());
+        }
+        else {
+            Log.d(TAG, "INTEREST RETRANSMISSION (" + "name " + interest.getName() + ")");
+        }
         try {
             face_.expressInterest(interest, new OnData() {
                         @Override
                         public void onData(Interest interest, Data data) {
                             long satisfiedTime = System.currentTimeMillis();
+                            if (!recvDatas_.contains(data.getName())) {
+                                recvDatas_.add(data.getName());
+                            }
+                            else {
+                                Log.d(TAG, "DUPLICATE ONDATA CALLBACK (" + "name" + data.getName() + ")");
+                            }
                             Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "data received (time " + satisfiedTime + ")");
 
                             Handler streamFetcherHandler = streamFetcherHandlers_.get(data.getName().getPrefix(-1));
