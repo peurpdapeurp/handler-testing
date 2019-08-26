@@ -99,7 +99,8 @@ public class NetworkThreadConsumer extends HandlerThread {
                                 recvDatas_.add(data.getName());
                             }
                             else {
-                                Log.d(TAG, "DUPLICATE ONDATA CALLBACK (" + "name" + data.getName() + ")");
+                                Log.d(TAG, "DUPLICATE ONDATA (" + "name " + data.getName() + ", " + "retx " +
+                                        retransmits_.contains(interest.getName()) + ")");
                             }
                             Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "data received (time " + satisfiedTime + ")");
 
