@@ -24,9 +24,9 @@ import net.named_data.jndn.security.policy.SelfVerifyPolicyManager;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class NetworkThread extends HandlerThread {
+public class NetworkThreadConsumer extends HandlerThread {
 
-    private final static String TAG = "NetworkThread";
+    private final static String TAG = "NetworkThreadConsumer";
 
     private Face face_;
     private KeyChain keyChain_;
@@ -54,8 +54,8 @@ public class NetworkThread extends HandlerThread {
         streamFetcherHandlers_.remove(streamName);
     }
 
-    public NetworkThread() {
-        super("NetworkThread");
+    public NetworkThreadConsumer() {
+        super("NetworkThreadConsumer");
         streamFetcherHandlers_ = new ConcurrentHashMap<>();
     }
 

@@ -7,6 +7,7 @@ import android.os.Message;
 import android.os.SystemClock;
 import android.util.Log;
 import androidx.annotation.NonNull;
+
 import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Interest;
@@ -15,7 +16,6 @@ import net.named_data.jndn.encoding.EncodingException;
 
 import java.util.HashMap;
 import java.util.PriorityQueue;
-import java.util.Timer;
 
 public class StreamFetcher extends HandlerThread {
 
@@ -46,6 +46,7 @@ public class StreamFetcher extends HandlerThread {
     private RttEstimator rttEstimator_;
     private Handler handler_ = null;
     private Handler networkThreadHandler_;
+    boolean closed_ = false;
 
     public static class DataInfo {
         public DataInfo(Data data, long receiveTime) {
@@ -61,7 +62,7 @@ public class StreamFetcher extends HandlerThread {
     }
 
     private void printState() {
-        Log.d(TAG, "Current state of StreamFetcher (" + getTimeSinceStreamFetchStart() + "):" + "\n" +
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "Current state of StreamFetcher:" + "\n" +
                 "currentStreamFinalBlockId_: " + currentStreamFinalBlockId_ + ", " +
                 "highestSegSent_: " + highestSegSent_ + ", " +
                 "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
@@ -94,19 +95,35 @@ public class StreamFetcher extends HandlerThread {
         return true;
     }
 
+    public void close() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "close called");
+        handler_.removeCallbacksAndMessages(null);
+        handler_.getLooper().quitSafely();
+        closed_ = true;
+    }
+
     public Handler getHandler() {
         return handler_;
     }
 
     private void doSomeWork() {
+
+        if (closed_) return;
+
         while (retransmissionQueue_.size() != 0 && withinCwnd()) {
             Long segNum = retransmissionQueue_.poll();
             if (segNum == null) continue;
             transmitInterest(segNum, true);
         }
 
+        if (retransmissionQueue_.size() == 0 && numOutstandingInterests_ == 0 &&
+                currentStreamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
+            close();
+            return;
+        }
+
         if (currentStreamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN ||
-            highestSegSent_ < currentStreamFinalBlockId_) {
+                highestSegSent_ < currentStreamFinalBlockId_) {
             while (nextSegShouldBeSent() && withinCwnd()) {
                 highestSegSent_++;
                 transmitInterest(highestSegSent_, false);
@@ -135,8 +152,7 @@ public class StreamFetcher extends HandlerThread {
     private void transmitInterest(final long segNum, boolean isRetransmission) {
         Interest interestToSend = new Interest(currentStreamName_);
         interestToSend.getName().appendSegment(segNum);
-        //long rto = (long) rttEstimator_.getEstimatedRto();
-        long rto = 5000;
+        long rto = new Double(rttEstimator_.getEstimatedRto()).longValue();
         interestToSend.setInterestLifetimeMilliseconds(rto);
         interestToSend.setCanBePrefix(false);
         interestToSend.setMustBeFresh(false);
@@ -145,7 +161,7 @@ public class StreamFetcher extends HandlerThread {
             @Override
             public void run() {
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
-                numOutstandingInterests_--;
+                modifyNumOutstandingInterests(-1);
                 retransmissionQueue_.add(segNum);
             }
         }, rtoToken, SystemClock.uptimeMillis() + rto);
@@ -155,8 +171,8 @@ public class StreamFetcher extends HandlerThread {
         } else {
             segSendTimes_.put(segNum, System.currentTimeMillis());
         }
-        networkThreadHandler_.obtainMessage(NetworkThread.MSG_INTEREST_SEND_REQUEST, interestToSend).sendToTarget();
-        numOutstandingInterests_++;
+        networkThreadHandler_.obtainMessage(NetworkThreadConsumer.MSG_INTEREST_SEND_REQUEST, interestToSend).sendToTarget();
+        modifyNumOutstandingInterests(1);
         Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "interest transmitted (seg num " + segNum + ", " + "rto " + rto + ", " + "retx: " + isRetransmission + ")");
     }
 
@@ -172,10 +188,12 @@ public class StreamFetcher extends HandlerThread {
         }
 
         if (segSendTimes_.containsKey(segNum)) {
-            long rtt = segSendTimes_.get(segNum) - receiveTime;
+            long rtt = receiveTime - segSendTimes_.get(segNum);
             Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rtt estimator add measure (rtt " + rtt + ", " +
                     "num outstanding interests  " + numOutstandingInterests_ + ")");
             rttEstimator_.addMeasurement(rtt, numOutstandingInterests_);
+            Log.d(TAG, getTimeSinceStreamFetchStart() + " : " + "rto after last measure add: " +
+                    rttEstimator_.getEstimatedRto());
             segSendTimes_.remove(segNum);
         }
 
@@ -194,15 +212,17 @@ public class StreamFetcher extends HandlerThread {
                     finalBlockId = finalBlockIdComponent.toSegment();
                     currentStreamFinalBlockId_ = finalBlockId;
                 }
-                catch (EncodingException e) {
-                    e.printStackTrace();
-                }
+                catch (EncodingException e) { }
             }
         }
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "receive data (seg num " + segNum + ", " +
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "receive data (" +
+                "name " + audioPacket.getName().toString() + ", " +
+                "seg num " + segNum + ", " +
                 "app nack: " + audioPacketWasAppNack +
                 ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                 + ")");
+
+        modifyNumOutstandingInterests(-1);
     }
 
     @SuppressLint("HandlerLeak")
@@ -229,7 +249,7 @@ public class StreamFetcher extends HandlerThread {
 
         private static final String TAG = "CwndCalculator";
 
-        private static final long MAX_CWND = 4; // max # of outstanding interests
+        private static final long MAX_CWND = 50; // max # of outstanding interests
 
         long currentCwnd_;
 
@@ -245,5 +265,11 @@ public class StreamFetcher extends HandlerThread {
 
     private boolean withinCwnd() {
         return numOutstandingInterests_ < cwndCalculator_.getCurrentCwnd();
+    }
+
+    private void modifyNumOutstandingInterests(int modifier) {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "modified num outstanding interest (" +
+                "current value " + numOutstandingInterests_ + ", " + "modifier " + modifier + ")");
+        numOutstandingInterests_ += modifier;
     }
 }

@@ -13,6 +13,11 @@ import java.util.Arrays;
 
 public class Helpers {
 
+    public static long getRandomLongBetweenRange(double min, double max){
+        long x = (long) ((Math.random()*((max-min)+1))+min);
+        return x;
+    }
+
     /**
      * @param producerSamplingRate Audio sampling rate of producer (samples per second).
      * @param framesPerSegment ADTS frames per segment.
