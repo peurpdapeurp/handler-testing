@@ -113,13 +113,16 @@ public class NetworkThreadConsumer extends HandlerThread {
                             }
                             else {
                                 duplicateOnData = true;
+                                return;
                             }
+
                             Long segNum = null;
                             try {
                                 segNum = data.getName().get(-1).toSegment();
                             } catch (EncodingException e) {
                                 e.printStackTrace();
                             }
+
                             Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " +
                                     "data received (" +
                                     "seg num " + segNum + ", " +

@@ -79,7 +79,7 @@
         </LinearLayout>
 
         <Button
-                android:text="@string/producer_mode"
+                android:text="@string/consumer_mode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:id="@+id/mode_button"/>
         <Button

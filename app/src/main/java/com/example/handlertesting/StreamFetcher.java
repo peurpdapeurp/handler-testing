@@ -27,6 +27,9 @@ public class StreamFetcher extends HandlerThread {
     private static final int FINAL_BLOCK_ID_UNKNOWN = -1;
     private static final int NO_SEGS_SENT = -1;
     private static final int PROCESSING_INTERVAL_MS = 100;
+    private static final int EVENT_DATA_RECEIVE = 0; // for outstanding interest counter
+    private static final int EVENT_INTEREST_TIMEOUT = 1; // for outstanding interest counter
+    private static final int EVENT_INTEREST_TRANSMIT = 2; // for outstanding interest counter
 
     // Messages
     public static final int MSG_DATA_RECEIVED = 0;
@@ -39,7 +42,6 @@ public class StreamFetcher extends HandlerThread {
     private long highestSegSent_ = NO_SEGS_SENT;
     private long msPerSegNum_;
     private long streamFetchStartTime_;
-    private int numOutstandingInterests_ = 0;
     private HashMap<Long, Long> segSendTimes_;
     private HashMap<Long, Object> rtoTokens_;
     private CwndCalculator cwndCalculator_;
@@ -47,6 +49,10 @@ public class StreamFetcher extends HandlerThread {
     private Handler handler_ = null;
     private Handler networkThreadHandler_;
     boolean closed_ = false;
+    private int numOutstandingInterests_ = 0;
+    private int numInterestsTransmitted_ = 0;
+    private int numInterestTimeouts_ = 0;
+    private int numDataReceives_ = 0;
 
     public static class DataInfo {
         public DataInfo(Data data, long receiveTime) {
@@ -166,7 +172,7 @@ public class StreamFetcher extends HandlerThread {
             @Override
             public void run() {
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
-                modifyNumOutstandingInterests(-1);
+                modifyNumOutstandingInterests(-1, EVENT_INTEREST_TIMEOUT);
                 retransmissionQueue_.add(segNum);
             }
         }, rtoToken, SystemClock.uptimeMillis() + rto);
@@ -177,7 +183,7 @@ public class StreamFetcher extends HandlerThread {
             segSendTimes_.put(segNum, System.currentTimeMillis());
         }
         networkThreadHandler_.obtainMessage(NetworkThreadConsumer.MSG_INTEREST_SEND_REQUEST, interestToSend).sendToTarget();
-        modifyNumOutstandingInterests(1);
+        modifyNumOutstandingInterests(1, EVENT_INTEREST_TRANSMIT);
         Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "interest transmitted (seg num " + segNum + ", " + "rto " + rto + ", " + "retx: " + isRetransmission + ")");
     }
 
@@ -230,7 +236,7 @@ public class StreamFetcher extends HandlerThread {
                 ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                 + ")");
 
-        modifyNumOutstandingInterests(-1);
+        modifyNumOutstandingInterests(-1, EVENT_DATA_RECEIVE);
     }
 
     @SuppressLint("HandlerLeak")
@@ -275,9 +281,30 @@ public class StreamFetcher extends HandlerThread {
         return numOutstandingInterests_ < cwndCalculator_.getCurrentCwnd();
     }
 
-    private void modifyNumOutstandingInterests(int modifier) {
+    private void modifyNumOutstandingInterests(int modifier, int event_code) {
         Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "modified num outstanding interest (" +
                 "current value " + numOutstandingInterests_ + ", " + "modifier " + modifier + ")");
         numOutstandingInterests_ += modifier;
+        switch (event_code) {
+            case EVENT_DATA_RECEIVE:
+                numDataReceives_++;
+                break;
+            case EVENT_INTEREST_TIMEOUT:
+                numInterestTimeouts_++;
+                break;
+            case EVENT_INTEREST_TRANSMIT:
+                numInterestsTransmitted_++;
+                break;
+        }
+        if (numOutstandingInterests_ < 0) {
+            Log.e(TAG, getTimeSinceStreamFetchStart() + ": " +
+                    "NEGATIVE OUTSTANDING INTERESTS (" +
+                    "numOutstandingInterests_ " + numOutstandingInterests_ + ", " +
+                    "numDataReceives_ " + numDataReceives_ + ", " +
+                    "numInterestTimeouts_ " + numInterestTimeouts_ + ", " +
+                    "numInterestsTransmitted_ " + numInterestsTransmitted_ +
+                    ")");
+            close();
+        }
     }
 }
