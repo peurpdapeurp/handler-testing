@@ -15,6 +15,7 @@ import net.named_data.jndn.Name;
 import net.named_data.jndn.encoding.EncodingException;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.PriorityQueue;
 
 public class StreamFetcher extends HandlerThread {
@@ -44,6 +45,7 @@ public class StreamFetcher extends HandlerThread {
     private long streamFetchStartTime_;
     private HashMap<Long, Long> segSendTimes_;
     private HashMap<Long, Object> rtoTokens_;
+    private HashSet<Long> timedOutSegs_;
     private CwndCalculator cwndCalculator_;
     private RttEstimator rttEstimator_;
     private Handler handler_ = null;
@@ -83,6 +85,7 @@ public class StreamFetcher extends HandlerThread {
         retransmissionQueue_ = new PriorityQueue<>();
         currentStreamName_ = streamName;
         segSendTimes_ = new HashMap<>();
+        timedOutSegs_ = new HashSet<>();
         rtoTokens_ = new HashMap<>();
         rttEstimator_ = new RttEstimator();
         msPerSegNum_ = msPerSegNum;
@@ -159,11 +162,7 @@ public class StreamFetcher extends HandlerThread {
     private void transmitInterest(final long segNum, boolean isRetransmission) {
         Interest interestToSend = new Interest(currentStreamName_);
         interestToSend.getName().appendSegment(segNum);
-        long rto = new Double(rttEstimator_.getEstimatedRto()).longValue();
-        if (rto == 0) {
-            Log.e(TAG, "rtt estimator got 0 rto, closing");
-            close();
-        }
+        long rto = (long) rttEstimator_.getEstimatedRto();
         interestToSend.setInterestLifetimeMilliseconds(rto);
         interestToSend.setCanBePrefix(false);
         interestToSend.setMustBeFresh(false);
@@ -172,6 +171,7 @@ public class StreamFetcher extends HandlerThread {
             @Override
             public void run() {
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
+                timedOutSegs_.add(segNum);
                 modifyNumOutstandingInterests(-1, EVENT_INTEREST_TIMEOUT);
                 retransmissionQueue_.add(segNum);
             }
@@ -204,6 +204,17 @@ public class StreamFetcher extends HandlerThread {
                     "rtt estimator add measure (rtt " + rtt + ", " +
                     "num outstanding interests  " + numOutstandingInterests_ +
                     ")");
+            if (numOutstandingInterests_ <= 0) {
+                Log.e(TAG, getTimeSinceStreamFetchStart() + ": " +
+                        "detected bad measurements being fed to rtt estimator (" +
+                        "numOutstandingInterests_ " + numOutstandingInterests_ + ", " +
+                        "numDataReceives_ " + numDataReceives_ + ", " +
+                        "numInterestTimeouts_ " + numInterestTimeouts_ + ", " +
+                        "numInterestsTransmitted_ " + numInterestsTransmitted_ +
+                        ")");
+                close();
+                return;
+            }
             rttEstimator_.addMeasurement(rtt, numOutstandingInterests_);
             Log.d(TAG, getTimeSinceStreamFetchStart() + " : " + "rto after last measure add: " +
                     rttEstimator_.getEstimatedRto());
@@ -237,7 +248,12 @@ public class StreamFetcher extends HandlerThread {
                 ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                 + ")");
 
-        modifyNumOutstandingInterests(-1, EVENT_DATA_RECEIVE);
+        if (timedOutSegs_.contains(segNum)) {
+            modifyNumOutstandingInterests(0, EVENT_DATA_RECEIVE);
+        }
+        else {
+            modifyNumOutstandingInterests(-1, EVENT_DATA_RECEIVE);
+        }
     }
 
     @SuppressLint("HandlerLeak")
@@ -283,8 +299,6 @@ public class StreamFetcher extends HandlerThread {
     }
 
     private void modifyNumOutstandingInterests(int modifier, int event_code) {
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "modified num outstanding interest (" +
-                "current value " + numOutstandingInterests_ + ", " + "modifier " + modifier + ")");
         numOutstandingInterests_ += modifier;
         switch (event_code) {
             case EVENT_DATA_RECEIVE:
@@ -297,15 +311,10 @@ public class StreamFetcher extends HandlerThread {
                 numInterestsTransmitted_++;
                 break;
         }
-        if (numOutstandingInterests_ < 0) {
-            Log.e(TAG, getTimeSinceStreamFetchStart() + ": " +
-                    "NEGATIVE OUTSTANDING INTERESTS (" +
-                    "numOutstandingInterests_ " + numOutstandingInterests_ + ", " +
-                    "numDataReceives_ " + numDataReceives_ + ", " +
-                    "numInterestTimeouts_ " + numInterestTimeouts_ + ", " +
-                    "numInterestsTransmitted_ " + numInterestsTransmitted_ +
-                    ")");
-            close();
-        }
+
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "num outstanding interests changed (" +
+                "current value " + numOutstandingInterests_ +
+                ")");
     }
 }
