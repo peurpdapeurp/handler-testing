@@ -210,6 +210,7 @@ public class StreamFetcher extends HandlerThread {
             segSendTimes_.remove(segNum);
         }
 
+        retransmissionQueue_.remove(segNum);
         handler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
 
         long finalBlockId = FINAL_BLOCK_ID_UNKNOWN;
