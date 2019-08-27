@@ -74,6 +74,9 @@ public class StreamFetcher extends HandlerThread {
                 "Current state of StreamFetcher:" + "\n" +
                 "currentStreamFinalBlockId_: " + currentStreamFinalBlockId_ + ", " +
                 "highestSegSent_: " + highestSegSent_ + ", " +
+                "numInterestsTransmitted_: " + numInterestsTransmitted_ + ", " +
+                "numInterestTimeouts_: " + numInterestTimeouts_ + ", " +
+                "numDataReceives_: " + numDataReceives_ + ", " +
                 "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
                 "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
                 "segSendTimes_: " + segSendTimes_);
