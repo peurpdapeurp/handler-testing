@@ -62,7 +62,8 @@ public class StreamFetcher extends HandlerThread {
     }
 
     private void printState() {
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "Current state of StreamFetcher:" + "\n" +
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "Current state of StreamFetcher:" + "\n" +
                 "currentStreamFinalBlockId_: " + currentStreamFinalBlockId_ + ", " +
                 "highestSegSent_: " + highestSegSent_ + ", " +
                 "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
@@ -153,6 +154,10 @@ public class StreamFetcher extends HandlerThread {
         Interest interestToSend = new Interest(currentStreamName_);
         interestToSend.getName().appendSegment(segNum);
         long rto = new Double(rttEstimator_.getEstimatedRto()).longValue();
+        if (rto == 0) {
+            Log.e(TAG, "rtt estimator got 0 rto, closing");
+            close();
+        }
         interestToSend.setInterestLifetimeMilliseconds(rto);
         interestToSend.setCanBePrefix(false);
         interestToSend.setMustBeFresh(false);
@@ -189,8 +194,10 @@ public class StreamFetcher extends HandlerThread {
 
         if (segSendTimes_.containsKey(segNum)) {
             long rtt = receiveTime - segSendTimes_.get(segNum);
-            Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rtt estimator add measure (rtt " + rtt + ", " +
-                    "num outstanding interests  " + numOutstandingInterests_ + ")");
+            Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                    "rtt estimator add measure (rtt " + rtt + ", " +
+                    "num outstanding interests  " + numOutstandingInterests_ +
+                    ")");
             rttEstimator_.addMeasurement(rtt, numOutstandingInterests_);
             Log.d(TAG, getTimeSinceStreamFetchStart() + " : " + "rto after last measure add: " +
                     rttEstimator_.getEstimatedRto());
@@ -215,10 +222,11 @@ public class StreamFetcher extends HandlerThread {
                 catch (EncodingException e) { }
             }
         }
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "receive data (" +
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "receive data (" +
                 "name " + audioPacket.getName().toString() + ", " +
                 "seg num " + segNum + ", " +
-                "app nack: " + audioPacketWasAppNack +
+                "app nack " + audioPacketWasAppNack +
                 ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                 + ")");
 

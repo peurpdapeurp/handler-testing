@@ -83,26 +83,50 @@ public class NetworkThreadConsumer extends HandlerThread {
     }
 
     private void sendInterest(Interest interest) {
-        Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "send interest (name " + interest.getName().toString() + ")");
+        Long segNum = null;
+        try {
+            segNum = interest.getName().get(-1).toSegment();
+        } catch (EncodingException e) {
+            e.printStackTrace();
+        }
+        boolean retransmit = false;
         if (!retransmits_.contains(interest.getName())) {
             retransmits_.add(interest.getName());
         }
         else {
-            Log.d(TAG, "INTEREST RETRANSMISSION (" + "name " + interest.getName() + ")");
+            retransmit = true;
         }
+        Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " +
+                "send interest (" +
+                "retx " + retransmit + ", " +
+                "seg num " + segNum + ", " +
+                "name " + interest.getName().toString() +
+                ")");
         try {
             face_.expressInterest(interest, new OnData() {
                         @Override
                         public void onData(Interest interest, Data data) {
                             long satisfiedTime = System.currentTimeMillis();
+                            boolean duplicateOnData = false;
                             if (!recvDatas_.contains(data.getName())) {
                                 recvDatas_.add(data.getName());
                             }
                             else {
-                                Log.d(TAG, "DUPLICATE ONDATA (" + "name " + data.getName() + ", " + "retx " +
-                                        retransmits_.contains(interest.getName()) + ")");
+                                duplicateOnData = true;
                             }
-                            Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "data received (time " + satisfiedTime + ")");
+                            Long segNum = null;
+                            try {
+                                segNum = data.getName().get(-1).toSegment();
+                            } catch (EncodingException e) {
+                                e.printStackTrace();
+                            }
+                            Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " +
+                                    "data received (" +
+                                    "seg num " + segNum + ", " +
+                                    "time " + satisfiedTime + ", " +
+                                    "duplicate " + duplicateOnData + ", " +
+                                    "retx " + retransmits_.contains(interest.getName()) +
+                                    ")");
 
                             Handler streamFetcherHandler = streamFetcherHandlers_.get(data.getName().getPrefix(-1));
                             if (streamFetcherHandler == null) {
